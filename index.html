@@ -2041,6 +2041,18 @@ $('bExport').onclick=()=>{
   $('okX').onclick=async()=>{S.name=$('xN').value.trim()||S.name;S.client=$('xC').value.trim();EX.seller=$('xS').value.trim();store('wtm-layout-ex',EX);syncInputs();
     const o={d3:$('x3d').checked,price:$('xP').checked,photos:$('xF').checked};$('okX').disabled=true;$('okX').textContent='Gerando...';
     try{const blob=await makePDF(o);closeModal();await saveFile('layout-wtm-'+slug()+'.pdf',blob)}catch(x){console.error(x);closeModal();toast('Não foi possível gerar o PDF.')}}};
+/* marca d'água: logo WTM com fundo transparente, repetida na diagonal */
+async function wmLogo(){const l=wtmLogo();const im=new Image();await new Promise(r=>{im.onload=r;im.onerror=r;im.src=l.src});if(!im.width)return null;
+  const c=document.createElement('canvas');c.width=im.width;c.height=im.height;const x=c.getContext('2d');x.drawImage(im,0,0);
+  const d=x.getImageData(0,0,c.width,c.height),p=d.data;for(let i=0;i<p.length;i+=4){const m=Math.min(p[i],p[i+1],p[i+2]);p[i+3]=Math.round(p[i+3]*Math.min(1,(255-m)/90))}
+  x.putImageData(d,0,0);return c}
+function wmCanvas(w,h,lc,alpha){const c=document.createElement('canvas');c.width=w;c.height=h;if(!lc)return c;const x=c.getContext('2d');x.globalAlpha=alpha;
+  x.translate(w/2,h/2);x.rotate(-Math.PI/7);const lw=Math.max(w,h)*.17,lh=lw*lc.height/lc.width,sx=lw*1.9,sy=lh*5.6,R=Math.hypot(w,h);let row=0;
+  for(let y=-R/2;y<R/2;y+=sy,row++)for(let xx=-R/2+(row%2?sx/2:0);xx<R/2;xx+=sx)x.drawImage(lc,xx-lw/2,y-lh/2,lw,lh);return c}
+/* grava no próprio pixel da imagem o trecho da marca da página onde ela será colocada (mm), para os dois padrões coincidirem */
+async function bakeWM(src,wm,mx,my,mw,mh){const im=new Image();await new Promise(r=>{im.onload=r;im.onerror=r;im.src=src});if(!im.width)return src;
+  const c=document.createElement('canvas');c.width=im.width;c.height=im.height;const x=c.getContext('2d');x.drawImage(im,0,0);
+  if(wm)x.drawImage(wm,mx*5,my*5,mw*5,mh*5,0,0,c.width,c.height);return c.toDataURL('image/jpeg',.9)}
 function wtmLogo(){return EX.wtmLogo||{src:WTM_LOGO,w:240,h:48}}
 async function snap3D(){if(!init3D())return null;try{const keep=G.cam.position.clone(),kt=G.ctl?G.ctl.target.clone():null;size3D(1760,1000);resetCam();await build3D();render3D();const u=G.r.domElement.toDataURL('image/jpeg',.9);
   G.cam.position.copy(keep);if(G.ctl&&kt){G.ctl.target.copy(kt);G.ctl.update()}if(view==='3d')size3D();return u}catch(e){return null}}
@@ -2048,6 +2060,7 @@ async function makePDF(o){
   const {jsPDF}=window.jspdf;const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});const PW=297,PH=210,M=12;
   const kind=s=>/^data:image\/png/.test(s)?'PNG':'JPEG';const fit=(im,mw,mh)=>{const k=Math.min(mw/im.w,mh/im.h);return[im.w*k,im.h*k]};
   const img=(src,x,y,w,h)=>{try{doc.addImage(src,kind(src),x,y,w,h,undefined,'FAST')}catch(e){}};
+  const lc=await wmLogo();const wmImg=lc?wmCanvas(1485,1050,lc,.045):null;const wmPage=lc?wmCanvas(1485,1050,lc,.05):null;
   let page=0;await Promise.all(S.items.map(it=>loaded(thumb(it.i))));
   const jpg=i=>{const im=thumb(i);if(!im||!im.width)return null;const c=document.createElement('canvas');c.width=im.width;c.height=im.height;const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(im,0,0);const k=Math.min(10/im.width,10/im.height);return{src:c.toDataURL('image/jpeg',.9),w:im.width*k,h:im.height*k}};
   const head=title=>{if(page++)doc.addPage();const wl=wtmLogo();const[lw,lh]=fit(wl,52,11);img(wl.src,M,M-3+(11-lh)/2,lw,lh);
@@ -2060,7 +2073,7 @@ async function makePDF(o){
   // página 1: planta + resumo
   head('Projeto de layout');
   const c=document.createElement('canvas');c.width=1500;c.height=1500*(150/190);drawPlan(c.getContext('2d'),c.width,c.height,true);
-  img(c.toDataURL('image/jpeg',.92),M,M+24,190,150);
+  img(await bakeWM(c.toDataURL('image/jpeg',.92),wmImg,M,M+24,190,150),M,M+24,190,150);
   let x=M+198,y=M+30;const kv=(k,v)=>{doc.setFont('helvetica','normal');doc.setFontSize(8.5);doc.setTextColor(120,118,114);doc.text(k,x,y);doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(38,38,38);doc.text(String(v),x,y+5);y+=12.5};
   doc.setFont('helvetica','bold');doc.setFontSize(12);doc.text('Resumo do ambiente',x,y-3);y+=5;
   kv('Dimensões da sala',`${fmt(S.room.w)} × ${fmt(S.room.l)} m  ·  pé-direito ${fmt(S.room.h)} m`);kv('Área útil',fmt(A.area,1)+' m²');kv('Equipamentos',S.items.filter(i=>i.placed).length+' unidades');
@@ -2070,7 +2083,7 @@ async function makePDF(o){
   used.forEach(g=>{const h=GC[g]||'#777777';doc.setFillColor(parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16));doc.circle(x+1.5,y-1.2,1.5,'F');doc.text(g,x+5,y);y+=4.6});
   doc.setFontSize(7.5);doc.setTextColor(120,118,114);doc.text('Os números na planta correspondem à lista de equipamentos.',M,M+178);
   // página 2: 3D
-  if(o.d3){const u=await snap3D();if(u){head('Vista 3D');img(u,M+8,M+26,261,148)}}
+  if(o.d3){const u=await snap3D();if(u){head('Vista 3D');img(await bakeWM(u,wmImg,M+8,M+26,261,148),M+8,M+26,261,148)}}
   // lista
   const lm=[...legendMap().values()];const cols=o.price?[M,M+10,M+24,M+104,M+140,M+166,M+178]:[M,M+10,M+24,M+140,M+182,M+214,M+230];
   const th=()=>{y=M+28;doc.setFillColor(75,75,75);doc.rect(M,y-5,PW-2*M,7,'F');doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(8.5);
@@ -2085,6 +2098,7 @@ async function makePDF(o){
   if(o.price){doc.setFont('helvetica','bold');doc.setFontSize(10);doc.text('Total: '+money(A.total),PW-M-1,Math.min(y+6,PH-12),{align:'right'})}
   if(anyEst){doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(120,118,114);doc.text('* Medida estimada, a confirmar na ficha técnica do equipamento.',M,Math.min(y+6,PH-12))}
   if(o.photos&&S.photos.length){for(let i=0;i<S.photos.length;i+=2){head('Fotos do local');[S.photos[i],S.photos[i+1]].forEach((p,k)=>{if(!p)return;const[w,h]=fit(p,132,150);img(p.src,M+k*139+(132-w)/2,M+26+(150-h)/2,w,h)})}}
+  if(wmPage){const wp=wmPage.toDataURL('image/png');for(let i=1;i<=doc.getNumberOfPages();i++){doc.setPage(i);doc.addImage(wp,'PNG',0,0,PW,PH,'wtm-wm','FAST')}}
   return doc.output('blob');
 }
 
